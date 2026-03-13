@@ -1,0 +1,121 @@
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# --- CONFIGURATION & STYLE ---
+st.set_page_config(page_title="TKD Manager Pro", page_icon="🥋", layout="wide")
+
+# Définition de votre mot de passe (À MODIFIER ICI)
+PASSWORD_ADMIN = "tkd2024" 
+
+# --- INITIALISATION ---
+if 'membres' not in st.session_state:
+    st.session_state.membres = pd.DataFrame(columns=[
+        "Nom", "Prénom", "Licence", "Téléphone", "Né(e) le", "Grade Actuel", "Prochain Passage"
+    ])
+
+if 'est_admin' not in st.session_state:
+    st.session_state.est_admin = False
+
+# --- LOGIQUE DE CONNEXION ---
+st.sidebar.title("🔐 Accès Restreint")
+if not st.session_state.est_admin:
+    pwd_input = st.sidebar.text_input("Mot de passe Maître", type="password")
+    if st.sidebar.button("Connexion"):
+        if pwd_input == PASSWORD_ADMIN:
+            st.session_state.est_admin = True
+            st.sidebar.success("Mode Administrateur activé")
+            st.rerun()
+        else:
+            st.sidebar.error("Mot de passe incorrect")
+else:
+    if st.sidebar.button("Se déconnecter"):
+        st.session_state.est_admin = False
+        st.rerun()
+    st.sidebar.success("🔓 Vous êtes en mode Administrateur")
+
+# --- COULEURS DES GRADES ---
+def colorier_grade(row):
+    couleurs = {
+        "Blanche": "background-color: #ffffff; color: black",
+        "Jaune": "background-color: #ffff00; color: black",
+        "Orange": "background-color: #ffa500; color: black",
+        "Verte": "background-color: #008000; color: white",
+        "Bleue": "background-color: #0000ff; color: white",
+        "Rouge": "background-color: #ff0000; color: white",
+        "Noire": "background-color: #000000; color: white"
+    }
+    return [couleurs.get(row['Grade Actuel'], "")] * len(row)
+
+# --- RECHERCHE (VISIBLE PAR TOUS) ---
+st.title("🥋 Logiciel de Gestion Taekwondo")
+st.sidebar.divider()
+st.sidebar.header("🔍 Recherche Rapide")
+recherche = st.sidebar.text_input("Nom ou N° Licence")
+
+if recherche:
+    res = st.session_state.membres[
+        st.session_state.membres['Nom'].str.contains(recherche, case=False) | 
+        st.session_state.membres['Licence'].str.contains(recherche, case=False)
+    ]
+    if not res.empty:
+        for i, row in res.iterrows():
+            st.sidebar.info(f"👤 {row['Prénom']} {row['Nom']}\n\n🎓 Grade : {row['Grade Actuel']}")
+    else:
+        st.sidebar.error("Aucun résultat.")
+
+# --- ONGLETS ---
+# Si admin : 3 onglets. Sinon : seulement la liste des membres.
+if st.session_state.est_admin:
+    tab1, tab2, tab3 = st.tabs(["👥 Inscriptions", "📋 Liste (Admin)", "🏆 Passages de Grades"])
+else:
+    tab2, = st.tabs(["📋 Liste des Membres (Lecture seule)"])
+
+# ONGLET 1 : INSCRIPTION (ADMIN SEULEMENT)
+if st.session_state.est_admin:
+    with tab1:
+        st.subheader("Ajouter un nouvel adhérent")
+        with st.form("inscription", clear_on_submit=True):
+            c1, c2 = st.columns(2)
+            nom = c1.text_input("Nom").upper()
+            prenom = c1.text_input("Prénom")
+            licence = c1.text_input("Numéro de Licence")
+            tel = c2.text_input("Téléphone")
+            dnais = c2.date_input("Date de naissance", min_value=datetime(1940, 1, 1))
+            grade_ini = c2.selectbox("Grade", ["Blanche", "Jaune", "Orange", "Verte", "Bleue", "Rouge", "Noire"])
+            if st.form_submit_button("Enregistrer"):
+                nouveau = pd.DataFrame([[nom, prenom, licence, tel, str(dnais), grade_ini, "Non planifié"]], 
+                                       columns=st.session_state.membres.columns)
+                st.session_state.membres = pd.concat([st.session_state.membres, nouveau], ignore_index=True)
+                st.success(f"{prenom} a été ajouté !")
+                st.rerun()
+
+# ONGLET 2 : LISTE (VISIBLE PAR TOUS)
+with tab2:
+    if not st.session_state.membres.empty:
+        # On affiche le tableau stylisé
+        st.dataframe(st.session_state.membres.style.apply(colorier_grade, axis=1), use_container_width=True)
+    else:
+        st.info("Aucun membre enregistré.")
+
+# ONGLET 3 : GRADES (ADMIN SEULEMENT)
+if st.session_state.est_admin:
+    with tab3:
+        st.subheader("Mise à jour des ceintures")
+        if not st.session_state.membres.empty:
+            noms_complets = st.session_state.membres["Prénom"] + " " + st.session_state.membres["Nom"]
+            choix = st.selectbox("Choisir l'élève", noms_complets)
+            idx = noms_complets[noms_complets == choix].index
+            
+            c_g, c_d = st.columns(2)
+            with c_g:
+                nouveau_g = st.selectbox("Nouveau grade", ["Blanche", "Jaune", "Orange", "Verte", "Bleue", "Rouge", "Noire"])
+                if st.button("Valider Promotion"):
+                    st.session_state.membres.at[idx, "Grade Actuel"] = nouveau_g
+                    st.success("Grade mis à jour !")
+                    st.rerun()
+            with c_d:
+                date_ex = st.date_input("Date du prochain examen")
+                if st.button("Fixer la Date"):
+                    st.session_state.membres.at[idx, "Prochain Passage"] = str(date_ex)
+                    st.info("Examen programmé.")
